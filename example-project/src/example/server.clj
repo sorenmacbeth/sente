@@ -55,7 +55,7 @@
 
 (let [;; Serializtion format, must use same val for client + server:
       packer :edn ; Default packer, a good choice in most cases
-      ;; (sente-transit/get-flexi-packer :edn) ; Experimental, needs Transit dep
+      ;; (sente-transit/get-transit-packer) ; Needs Transit dep
 
       {:keys [ch-recv send-fn ajax-post-fn ajax-get-or-ws-handshake-fn
               connected-uids]}
@@ -79,6 +79,8 @@
     [:p [:strong "Step 1: "] " try hitting the buttons:"]
     [:button#btn1 {:type "button"} "chsk-send! (w/o reply)"]
     [:button#btn2 {:type "button"} "chsk-send! (with reply)"]
+    [:button#btn3 {:type "button"} "Test rapid server>user pushes"]
+    [:button#btn4 {:type "button"} "Toggle broadcast loop"]
     ;;
     [:p [:strong "Step 2: "] " observe std-out (for server output) and below (for client output):"]
     [:textarea#output {:style "width: 100%; height: 200px;"}]
@@ -122,6 +124,40 @@
   (ring.middleware.defaults/wrap-defaults
     ring-routes ring.middleware.defaults/site-defaults))
 
+;;;; Some server>user async push examples
+
+(defn test-fast-server>user-pushes
+  "Quickly pushes 100 events to all connected users. Note that this'll be
+  fast+reliable even over Ajax!"
+  []
+  (doseq [uid (:any @connected-uids)]
+    (doseq [i (range 100)]
+      (chsk-send! uid [:fast-push/is-fast (str "hello " i "!!")]))))
+
+(comment (test-fast-server>user-pushes))
+
+(def broadcast-enabled?_ (atom true))
+
+(defn start-example-broadcaster!
+  "As an example of server>user async pushes, setup a loop to broadcast an
+  event to all connected users every 10 seconds"
+  []
+  (let [broadcast!
+        (fn [i]
+          (debugf "Broadcasting server>user: %s" @connected-uids)
+          (doseq [uid (:any @connected-uids)]
+            (chsk-send! uid
+              [:some/broadcast
+               {:what-is-this "An async broadcast pushed from server"
+                :how-often "Every 10 seconds"
+                :to-whom uid
+                :i i}])))]
+
+    (go-loop [i 0]
+      (<! (async/timeout 10000))
+      (when @broadcast-enabled?_ (broadcast! i))
+      (recur (inc i)))))
+
 ;;;; Sente event handlers
 
 (defmulti -event-msg-handler
@@ -145,6 +181,14 @@
     (when ?reply-fn
       (?reply-fn {:umatched-event-as-echoed-from-from-server event}))))
 
+(defmethod -event-msg-handler :example/test-rapid-push
+  [ev-msg] (test-fast-server>user-pushes))
+
+(defmethod -event-msg-handler :example/toggle-broadcast
+  [{:as ev-msg :keys [?reply-fn]}]
+  (let [loop-enabled? (swap! broadcast-enabled?_ not)]
+    (?reply-fn loop-enabled?)))
+
 ;; TODO Add your (defmethod -event-msg-handler <event-id> [ev-msg] <body>)s here...
 
 ;;;; Sente event router (our `event-msg-handler` loop)
@@ -156,38 +200,6 @@
   (reset! router_
     (sente/start-server-chsk-router!
       ch-chsk event-msg-handler)))
-
-;;;; Some server>user async push examples
-
-(defn start-example-broadcaster!
-  "As an example of server>user async pushes, setup a loop to broadcast an
-  event to all connected users every 10 seconds"
-  []
-  (let [broadcast!
-        (fn [i]
-          (debugf "Broadcasting server>user: %s" @connected-uids)
-          (doseq [uid (:any @connected-uids)]
-            (chsk-send! uid
-              [:some/broadcast
-               {:what-is-this "An async broadcast pushed from server"
-                :how-often "Every 10 seconds"
-                :to-whom uid
-                :i i}])))]
-
-    (go-loop [i 0]
-      (<! (async/timeout 10000))
-      (broadcast! i)
-      (recur (inc i)))))
-
-(defn test-fast-server>user-pushes
-  "Quickly pushes 100 events to all connected users. Note that this'll be
-  fast+reliable even over Ajax!"
-  []
-  (doseq [uid (:any @connected-uids)]
-    (doseq [i (range 100)]
-      (chsk-send! uid [:fast-push/is-fast (str "hello " i "!!")]))))
-
-(comment (test-fast-server>user-pushes))
 
 ;;;; Init stuff
 
