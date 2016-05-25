@@ -471,13 +471,11 @@
                   reply-fn
                   (let [replied?_ (atom false)]
                     (fn [resp-clj] ; Any clj form
-                      (if (compare-and-set! replied?_ false true)
-                        (do
-                          (tracef "Chsk send (ajax post reply): %s" resp-clj)
-                          (interfaces/-sch-send! server-ch
-                            (pack packer (meta resp-clj) resp-clj)
-                            :close-after-send))
-                        (debugf "Ajax reply noop (already replied): %s" resp-clj))))]
+                      (when (compare-and-set! replied?_ false true)
+                        (tracef "Chsk send (ajax post reply): %s" resp-clj)
+                        (interfaces/-sch-send! server-ch
+                          (pack packer (meta resp-clj) resp-clj)
+                          :close-after-send))))]
 
               (put-server-event-msg>ch-recv! ch-recv
                 (merge ev-msg-const
@@ -577,6 +575,7 @@
                         (or (:init? (upd-last-udt! client-id udt-open))
                             (:handshake? params))]
 
+                    (println " ** DEBUG: new ajax conn open")
                     (when (connect-uid! :ajax uid)
                       (receive-event-msg! [:chsk/uidport-open]))
 
@@ -588,11 +587,16 @@
                         (go
                           (<! (async/timeout ms))
                           (let [udt-t1 (get @last-udts_ client-id)]
-                            (when (= udt-t1 udt-open)
-                              ;; Appears to still be the active sch
-                              (interfaces/-sch-send! server-ch
-                                (pack packer nil :chsk/timeout)
-                                :close-after-send)))))))))
+                            (if (= udt-t1 udt-open)
+                              (do
+                                (println " ** DEBUG: sending :chsk/timeout")
+                                ;; Appears to still be the active sch
+                                (interfaces/-sch-send! server-ch
+                                  (pack packer nil :chsk/timeout)
+                                  :close-after-send))
+                              (println
+                                (str " ** DEBUG: t mismatch "
+                                  [udt-t1 udt-open]))))))))))
 
               :on-msg ; Only for WebSockets
               (fn [server-ch req-ppstr]
@@ -621,6 +625,7 @@
                 ;; sole window refresh, etc.):
                 (let [udt-close (enc/now-udt)]
                   (upd-last-udt! client-id udt-close)
+                  (when-not websocket? (println " ** debug: ajax closed"))
                   (go
                     (<! (async/timeout 5000))
                     (let [udt-t1 (get @last-udts_ client-id)]
@@ -932,7 +937,12 @@
                                 [clj ?cb-uuid] (unpack packer ppstr)]
                             ;; (assert-event clj) ;; NO!
                             (or
-                              (= clj :chsk/ws-ping) ; Noop
+                              ;; (= clj :chsk/ws-ping) ; Noop
+                              (when (= clj :chsk/ws-ping)
+                                (receive-buffered-evs! chs
+                                  [[:debug/ws-ping "debug"]])
+                                true) ; TODO Temp
+
                               (and (handle-when-handshake! :ws chsk clj)
                                    (reset! retry-count_ 0))
                               (if-let [cb-uuid ?cb-uuid]
@@ -1015,7 +1025,8 @@
         (let [csrf-token (:csrf-token @state_)]
           (ajax-lite url
             (merge ajax-opts
-              {:method :post :timeout-ms ?timeout-ms
+              {:method :post
+               :timeout-ms (or ?timeout-ms (:timeout-ms ajax-opts) 60000)
                :resp-type :text ; We'll do our own pstr decoding
                :headers
                (merge (:headers ajax-opts) ; 1st (don't clobber impl.):
@@ -1071,6 +1082,7 @@
                 (ajax-lite url
                   (merge ajax-opts
                     {:method :get ; :timeout-ms timeout-ms
+                     :timeout-ms (or (:timeout-ms ajax-opts) 60000)
                      :resp-type :text ; Prefer to do our own pstr reading
                      :params
                      (merge
@@ -1103,7 +1115,11 @@
                             ppstr   content
                             [clj _] (unpack packer ppstr)]
                         (or
-                          (= clj :chsk/timeout) ; Noop (just repoll)
+                          ;; (= clj :chsk/timeout) ; Noop (just repoll)
+                          (when (= clj :chsk/timeout)
+                            (receive-buffered-evs! chs
+                              [[:debug/timeout "debug"]])
+                            true) ; TODO Temp
                           (handle-when-handshake! :ajax chsk clj)
                           (let [buffered-evs clj] ; An application reply
                             (receive-buffered-evs! chs buffered-evs)))
