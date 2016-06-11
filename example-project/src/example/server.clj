@@ -23,6 +23,10 @@
    ;; [nginx.clojure.embed :as nginx-clojure]
    ;; [taoensso.sente.server-adapters.nginx-clojure :refer (sente-web-server-adapter)]
 
+   ;; [aleph.http :as aleph]
+   ;; [aleph.netty :as netty]
+   ;; [taoensso.sente.server-adapters.aleph :refer (sente-web-server-adapter)]
+
    ;; Optional, for Transit encoding:
    [taoensso.sente.packers.transit :as sente-transit]))
 
@@ -51,6 +55,13 @@
 ;;     {:server  nil ; nginx-clojure doesn't expose this
 ;;      :port    port
 ;;      :stop-fn nginx-clojure/stop-server}))
+
+;; (defn start-selected-server! [ring-handler port]
+;;   (infof "Starting aleph...")
+;;   (let [server (aleph/start-server ring-handler {:port port})]
+;;     {:server server
+;;      :port (netty/port server)
+;;      :stop-fn (fn [] (.close server))}))
 
 ;;;; Define our Sente channel socket (chsk) server
 

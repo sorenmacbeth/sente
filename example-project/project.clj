@@ -22,6 +22,7 @@
    [http-kit                  "2.2.0-alpha2"]
    ;; [org.immutant/web       "2.1.4"]
    ;; [nginx-clojure/nginx-clojure-embed "0.4.2"] ; Needs v0.4.2+
+   ;; [aleph                  "0.4.1"]
 
    [ring                      "1.5.0"]
    [ring/ring-defaults        "0.2.1"] ; Includes `ring-anti-forgery`, etc.
